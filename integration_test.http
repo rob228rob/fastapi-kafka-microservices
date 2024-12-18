@@ -1,0 +1,58 @@
+### 1. Регистрация нового администратора
+POST http://localhost:8080/register
+Content-Type: application/json
+
+{
+    "username": "admin_user",
+    "password": "admin_password",
+    "roles": "admin"
+}
+
+### 2. Авторизация администратора и сохранение токена
+POST http://localhost:8080/login
+Content-Type: application/x-www-form-urlencoded
+
+username=admin_user&password=admin_password
+
+> {% client.global.set("admin_token", response.body.access_token) %}
+
+### 3. Регистрация нового обычного пользователя
+POST http://localhost:8080/register
+Content-Type: application/json
+
+{
+    "username": "john_doe",
+    "password": "secret_password",
+    "roles": "user"
+}
+
+### 4. Авторизация обычного пользователя и сохранение токена
+POST http://localhost:8080/login
+Content-Type: application/x-www-form-urlencoded
+
+username=john_doe&password=secret_password
+
+> {% client.global.set("user_token", response.body.access_token) %}
+
+### 5. Загрузка фильма как обычный пользователь
+POST http://localhost:8080/upload_movie
+Authorization: Bearer {{user_token}}
+Content-Type: multipart/form-data
+
+title=Inception
+description=A mind-bending thriller.
+file=@./path/to/inception.mp4
+
+### 6. Отправка сообщения в Kafka как обычный пользователь
+POST http://localhost:8080/send/
+Authorization: Bearer {{user_token}}
+Content-Type: application/json
+
+{
+    "action": "upload",
+    "movie_id": 1
+}
+
+### 7. Получение списка пользователей как администратор
+GET http://localhost:8080/admin/users?limit=10
+Authorization: Bearer {{admin_token}}

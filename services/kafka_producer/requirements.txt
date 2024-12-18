@@ -8,9 +8,11 @@ MarkupSafe
 pydantic>=1.8,<2.0
 starlette==0.26.1 # Совместимая версия с FastAPI 0.95.0
 typing-extensions
-uvicorn
+uvicorn==0.22.0
 kafka-python-ng
 psycopg2-binary
 python-jose[cryptography]
 passlib[bcrypt]
+sqlalchemy
 python-multipart
+minio==7.1.14  # Библиотека для взаимодействия с MinIO S3
