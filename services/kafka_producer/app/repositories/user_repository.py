@@ -1,22 +1,25 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 import os
+from typing import Type
 
-# Database configuration
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
-DB_HOST = os.getenv("DB_HOST", "localhost")
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey
+from sqlalchemy.orm import sessionmaker, relationship, Session
+
+DB_USER = os.getenv("POSTGRES_USER", "myuser")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "mypassword")
+DB_HOST = os.getenv("DB_HOST", "db")
 DB_PORT = os.getenv("DB_PORT", "5432")
-DB_NAME = os.getenv("DB_NAME", "main_db")
+DB_NAME = os.getenv("POSTGRES_DB", "mydatabase")
+
 
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 engine = create_engine(DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+from .models import BaseDeclaration
 
 # ORM Models
-class User(Base):
+class User(BaseDeclaration):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -26,14 +29,14 @@ class User(Base):
     disabled = Column(Boolean, default=False)
     roles = relationship("Role", secondary="user_roles", back_populates="users")
 
-class Role(Base):
+class Role(BaseDeclaration):
     __tablename__ = "roles"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
     users = relationship("User", secondary="user_roles", back_populates="roles")
 
-class UserRole(Base):
+class UserRole(BaseDeclaration):
     __tablename__ = "user_roles"
 
     user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
@@ -50,12 +53,12 @@ def get_user_roles(db, user_id: int):
     user = db.query(User).filter(User.id == user_id).first()
     return [role.name for role in user.roles] if user else []
 
-def create_user(db, username: str, password_hash: str, full_name: str = None):
+def create_user(db, username: str, password_hash: str, full_name: str = None) -> User:
     new_user = User(username=username, full_name=full_name, hashed_password=password_hash)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return new_user.id
+    return new_user
 
 def assign_role_to_user(db, user_id: int, role_name: str):
     role = db.query(Role).filter(Role.name == role_name).first()
@@ -76,7 +79,7 @@ def assign_roles_to_user(db, user_id: int, roles: list[str]):
     for role in roles:
         assign_role_to_user(db, user_id, role)
 
-def get_all_users(db, limit: int):
+def get_all_users(db: Session, limit: int) -> list[Type[User]]:
     return db.query(User).limit(limit).all()
 
 # Dependency for FastAPI routes

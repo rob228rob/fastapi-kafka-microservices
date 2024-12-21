@@ -1,5 +1,5 @@
 ### 1. Регистрация нового администратора
-POST http://localhost:8080/register
+POST http://localhost:8000/register
 Content-Type: application/json
 
 {
@@ -54,5 +54,9 @@ Content-Type: application/json
 }
 
 ### 7. Получение списка пользователей как администратор
-GET http://localhost:8080/admin/users?limit=10
+GET http://localhost:8000/admin/users?limit=10
 Authorization: Bearer {{admin_token}}
+
+
+###
+GET http://localhost:8000/health

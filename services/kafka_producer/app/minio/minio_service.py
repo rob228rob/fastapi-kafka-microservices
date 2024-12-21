@@ -1,4 +1,5 @@
-# app/minio/minio_service.py
+# minio_service.py
+
 import logging
 
 from fastapi import HTTPException, status
@@ -8,7 +9,7 @@ from minio.error import S3Error
 logger = logging.getLogger(__name__)
 
 class MinioClientWrapper:
-    def __init__(self, endpoint, access_key, secret_key, secure=False, bucket_name="movies"):
+    def __init__(self, endpoint: str, access_key: str, secret_key: str, secure: bool = False, bucket_name: str = "movies"):
         self.client = Minio(
             endpoint,
             access_key=access_key,
@@ -32,7 +33,7 @@ class MinioClientWrapper:
                 detail="Не удалось инициализировать хранилище."
             )
 
-    def upload_movie(self, object_name, file_path):
+    def upload_movie(self, object_name: str, file_path: str):
         """
         Загружает файл (фильм) в bucket MinIO
         :param object_name: имя объекта (файла) в хранилище
@@ -48,7 +49,7 @@ class MinioClientWrapper:
                 detail="Не удалось загрузить файл в хранилище."
             )
 
-    def download_movie(self, object_name, file_path):
+    def download_movie(self, object_name: str, file_path: str):
         """
         Скачивает файл (фильм) из bucket MinIO
         :param object_name: имя объекта (файла) в хранилище

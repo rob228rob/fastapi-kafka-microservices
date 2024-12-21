@@ -10,7 +10,9 @@ from passlib.context import CryptContext
 import os
 import logging
 
-from .repositories.user_repository import get_user_by_username, get_user_by_id
+from sqlalchemy.orm import Session
+
+from .repositories.user_repository import get_user_by_username, get_user_by_id, get_db
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -51,14 +53,21 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def get_user(username: str) -> Optional[UserInDB]:
-    user_dict = get_user_by_username(username)
-    if user_dict:
-        return UserInDB(**user_dict)
+def get_user(username: str, db: Session) -> Optional[UserInDB]:
+    user = get_user_by_username(db, username)
+    if user:
+        return UserInDB(
+            id=user.id,
+            username=user.username,
+            hashed_password=user.hashed_password,
+            full_name=user.full_name,
+            disabled=user.disabled,
+            roles=[role.name for role in user.roles]
+        )
     return None
 
-def authenticate_user(username: str, password: str):
-    user = get_user(username)
+def authenticate_user(username: str, password: str, db: Session):
+    user = get_user(username, db)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
@@ -75,7 +84,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(token: str = Depends(oauth2_scheme)):
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Неверные учетные данные",
@@ -93,10 +102,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise credentials_exception
 
-    user_dict = get_user_by_id(token_data.id)
-    if not user_dict:
+    user = get_user_by_id(db, token_data.id)
+    if not user:
         raise credentials_exception
-    return UserInDB(**user_dict)
+    if user:
+        return UserInDB(
+            id=user.id,
+            username=user.username,
+            hashed_password=user.hashed_password,
+            full_name=user.full_name,
+            disabled=user.disabled,
+            roles=[role.name for role in user.roles]
+        )
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
     if current_user.disabled:

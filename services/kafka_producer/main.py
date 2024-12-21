@@ -7,7 +7,7 @@ from typing import Dict
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from passlib.handlers.bcrypt import bcrypt
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -20,11 +20,17 @@ from app.auth import (
     admin_required,
 )
 from app.minio.minio_service import MinioClientWrapper  # Изменено
-from app.repositories.movie_repository import create_movie
-from app.repositories.user_repository import get_all_users, get_db, create_user, assign_roles_to_user
 from app.producer import send_user_stat_to_kafka
-from app.repositories.user_repository import Base, engine
-import uvicorn
+from app.repositories.movie_repository import create_movie
+from app.repositories.user_repository import BaseDeclaration, engine
+from app.repositories.user_repository import get_all_users, get_db, create_user, assign_roles_to_user, \
+    get_user_by_username
+from pydantic_models import UserRegister
+
+import app.repositories.movie_repository
+import app.repositories.user_repository
+
+from streaming import router as streaming_router
 
 logger = logging.getLogger("app.main")
 logging.basicConfig(
@@ -33,15 +39,22 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()],
 )
 
-app = FastAPI()  # Создаём объект app на уровне модуля
+app = FastAPI(
+    title="Ваше приложение",
+    description="Описание вашего API",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)  # Создаём объект app на уровне модуля
 
 # Инициализация базы данных
 try:
     logger.info("Initializing database...")
-    Base.metadata.create_all(bind=engine)
+    BaseDeclaration.metadata.create_all(bind=engine)
     logger.info("Database tables created successfully.")
 except OperationalError as e:
     logger.error(f"Failed to initialize database: {e}")
+
 
 # Инициализация MinIO клиента при старте приложения
 @app.on_event("startup")
@@ -52,12 +65,13 @@ async def startup_event():
     MINIO_BUCKET = os.getenv("MINIO_BUCKET", "movies")
 
     try:
-        app.state.minio_client = MinioClientWrapper(
+        minio_client = MinioClientWrapper(
             endpoint=MINIO_ENDPOINT,
             access_key=MINIO_ACCESS_KEY,
             secret_key=MINIO_SECRET_KEY,
             bucket_name=MINIO_BUCKET
         )
+        app.state.minio_client = minio_client
         logger.info("MinIO клиент инициализирован.")
     except Exception as e:
         logger.error(f"Не удалось инициализировать MinIO клиент: {e}")
@@ -66,35 +80,51 @@ async def startup_event():
             detail="Не удалось инициализировать хранилище."
         )
 
+
+def get_minio_client() -> MinioClientWrapper:
+    return app.state.minio_client
+
+# Подключение роутера из streaming.py
+app.include_router(streaming_router)
+
+@app.get("/liveness")
+async def health():
+    return {"status": "ok", "problems": "0"}
+
+
 @app.post("/register", response_model=Token)
-async def register_user(
-    username: str,
-    password: str,
-    full_name: str,
-    roles: str = "user",  # По умолчанию роль "user"
-    db: Session = Depends(get_db)
-):
-    logger.info(f"Registering new user: '{username}'")
+async def register_user(user: UserRegister, db: Session = Depends(get_db)):
+    logger.info(f"Registering new user: '{user.username}'")
     try:
-        user = create_user(db, username=username, password_hash=bcrypt.hash(password), full_name=full_name)
-        assign_roles_to_user(db, user.id, roles)
+        existing_user = get_user_by_username(db, user.username)
+        if existing_user:
+            raise HTTPException(status_code=409, detail="Username already exists")
+
+        hashed_password = bcrypt.hash(user.password)
+        new_user = create_user(db, username=user.username, password_hash=hashed_password, full_name=user.full_name)
+        assign_roles_to_user(db, new_user.id, user.roles.split(","))  # если `roles` — строка с запятыми
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
-            data={"sub": user.username, "id": user.id, "roles": user.roles},
+            data={"sub": new_user.username, "id": new_user.id, "roles": [role.name for role in new_user.roles]},
             expires_delta=access_token_expires,
         )
-        logger.info(f"User '{username}' registered successfully.")
+        logger.info(f"User '{user.username}' registered successfully.")
         return {"access_token": access_token, "token_type": "bearer"}
+    except IntegrityError as e:
+        logger.error(f"Database integrity error: {e}")
+        raise HTTPException(status_code=409, detail="Username already exists")
     except Exception as e:
-        logger.error(f"Failed to register user '{username}': {e}")
+        logger.error(f"Failed to register user '{user.username}': {e}")
         raise HTTPException(status_code=400, detail="Failed to register user")
+
 
 @app.post("/login", response_model=Token)
 async def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends()
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        db: Session = Depends(get_db)
 ):
     logger.info(f"Received authentication request for user: '{form_data.username}'")
-    user = authenticate_user(form_data.username, form_data.password)
+    user = authenticate_user(form_data.username, form_data.password, db)
 
     if not user:
         logger.warning(f"Authentication failed for user: '{form_data.username}'")
@@ -111,9 +141,11 @@ async def login_for_access_token(
     logger.info(f"User '{user.username}' obtained access token.")
     return {"access_token": access_token, "token_type": "bearer"}
 
+
+
 @app.post("/send/")
 async def send_to_kafka(
-    message: Dict, current_user: User = Depends(get_current_active_user)
+        message: Dict, current_user: User = Depends(get_current_active_user)
 ):
     logger.info(f"User '{current_user.username}' is attempting to send message to Kafka: {message}")
     try:
@@ -124,13 +156,32 @@ async def send_to_kafka(
         logger.error(f"Failed to send message to Kafka: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/admin/users")
-async def get_users(limit: int, current_user: User = Depends(admin_required)):
-    users = get_all_users(get_db(), limit=limit)
-    # Предполагается, что вы хотите вернуть список пользователей
-    return {"users": users}
 
-@app.post("/upload_movie")
+from pydantic_models import UserOut, UsersResponse
+
+@app.get("/admin/users", response_model=UsersResponse)
+async def get_users(
+        limit: int,
+        current_user: User = Depends(admin_required),
+        db: Session = Depends(get_db)
+):
+    users = get_all_users(db, limit=limit)
+
+    users_out = [
+        UserOut(
+            id=user.id,
+            username=user.username,
+            full_name=user.full_name,
+            disabled=user.disabled,
+            roles=[role.name for role in user.roles]
+        )
+        for user in users
+    ]
+
+    return {"users": users_out}
+
+
+@app.post("/admin/upload_movie")
 async def upload_movie(
         title: str,
         description: str,
@@ -144,7 +195,7 @@ async def upload_movie(
     # Сохраняем файл локально временно
     file_path = f"/tmp/{file.filename}"
     with open(file_path, "wb") as f:
-        f.write(await file.read())  # Сделано асинхронным
+        f.write(await file.read())
 
     try:
         minio_client.upload_movie(s3_key, file_path)
@@ -155,11 +206,3 @@ async def upload_movie(
         return {"status": "success", "movie_id": movie.id}
     finally:
         os.remove(file_path)
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8080,
-        log_level="info",
-    )

@@ -1,18 +1,20 @@
 aiofiles
 asgiref
 click
-fastapi==0.95.0   # Это стабильная версия, которая хорошо работает с зависимостями
+fastapi==0.95.2
+uvicorn==0.22.0
 h11
 Jinja2
 MarkupSafe
 pydantic>=1.8,<2.0
-starlette==0.26.1 # Совместимая версия с FastAPI 0.95.0
+starlette==0.27.0
 typing-extensions
-uvicorn==0.22.0
 kafka-python-ng
 psycopg2-binary
 python-jose[cryptography]
-passlib[bcrypt]
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+
 sqlalchemy
 python-multipart
-minio==7.1.14  # Библиотека для взаимодействия с MinIO S3
+minio==7.1.14

@@ -17,4 +17,7 @@ RUN pip install -r requirements.txt
 # Копируем остальной код приложения
 COPY . .
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+#если удалить мануальный вызов .run() в main.py, то можно использовать данный подход
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+#CMD ["python", "main.py"]
