@@ -1,6 +1,6 @@
 # tests/test_db.py
 import pytest
-from services.kafka_producer.app.repositories.user_repository import create_user, get_user_by_id, get_user_by_username, assign_role_to_user, get_user_roles
+from src.repositories.user_repository import create_user, get_user_by_id, get_user_by_username, assign_role_to_user, get_user_roles
 
 @pytest.mark.usefixtures("test_db")
 def test_create_user():

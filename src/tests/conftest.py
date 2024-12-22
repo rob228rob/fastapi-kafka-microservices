@@ -42,5 +42,5 @@ def test_db(db_connection: PGConnection):
 @pytest.fixture(scope="function")
 def client(test_db):
     # Мокаем get_connection, чтобы он возвращал наш test_db connection
-    with patch("app.db.get_connection", return_value=test_db):
+    with patch("src.db.get_connection", return_value=test_db):
         yield TestClient(app)

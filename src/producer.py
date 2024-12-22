@@ -1,4 +1,4 @@
-# app/kafka_producer.py
+# src/kafka_producer.py
 
 from kafka import KafkaProducer
 import json

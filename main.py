@@ -1,38 +1,44 @@
-# main.py
+# src/main.py
+
 import logging
 import os
 from datetime import timedelta
 from typing import Dict
 
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from passlib.handlers.bcrypt import bcrypt
 from sqlalchemy.exc import OperationalError, IntegrityError
 from sqlalchemy.orm import Session
 
-from app.auth import (
+from movie_router import movie_router
+from src.auth import (
     authenticate_user,
     create_access_token,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     Token,
     get_current_active_user,
     User,
-    admin_required,
 )
-from app.minio.minio_service import MinioClientWrapper  # Изменено
-from app.producer import send_user_stat_to_kafka
-from app.repositories.movie_repository import create_movie
-from app.repositories.user_repository import BaseDeclaration, engine
-from app.repositories.user_repository import get_all_users, get_db, create_user, assign_roles_to_user, \
-    get_user_by_username
+
+from src.minio.minio_service import MinioClientWrapper
+from src.producer import send_user_stat_to_kafka
+from src.repositories.user_repository import (
+    BaseDeclaration,
+    engine,
+    get_db,
+    create_user,
+    assign_roles_to_user,
+    get_user_by_username,
+)
+from src.streaming.streaming import router as streaming_router
+from admin_router import admin_route
+
 from pydantic_models import UserRegister
 
-import app.repositories.movie_repository
-import app.repositories.user_repository
+# from src.admin.admin_router  import router as admin_router  # Импортируйте admin_router
 
-from streaming import router as streaming_router
-
-logger = logging.getLogger("app.main")
+logger = logging.getLogger("src.main")
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -40,12 +46,17 @@ logging.basicConfig(
 )
 
 app = FastAPI(
-    title="Ваше приложение",
-    description="Описание вашего API",
+    title="Main Api",
+    description="Основной сервис, отвечающий за авторизацию, стриминг и ",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
-)  # Создаём объект app на уровне модуля
+)
+
+# Подключение роутеров
+app.include_router(admin_route)
+app.include_router(streaming_router)
+app.include_router(movie_router)
 
 # Инициализация базы данных
 try:
@@ -54,7 +65,6 @@ try:
     logger.info("Database tables created successfully.")
 except OperationalError as e:
     logger.error(f"Failed to initialize database: {e}")
-
 
 # Инициализация MinIO клиента при старте приложения
 @app.on_event("startup")
@@ -81,16 +91,9 @@ async def startup_event():
         )
 
 
-def get_minio_client() -> MinioClientWrapper:
-    return app.state.minio_client
-
-# Подключение роутера из streaming.py
-app.include_router(streaming_router)
-
 @app.get("/liveness")
 async def health():
     return {"status": "ok", "problems": "0"}
-
 
 @app.post("/register", response_model=Token)
 async def register_user(user: UserRegister, db: Session = Depends(get_db)):
@@ -117,7 +120,6 @@ async def register_user(user: UserRegister, db: Session = Depends(get_db)):
         logger.error(f"Failed to register user '{user.username}': {e}")
         raise HTTPException(status_code=400, detail="Failed to register user")
 
-
 @app.post("/login", response_model=Token)
 async def login_for_access_token(
         form_data: OAuth2PasswordRequestForm = Depends(),
@@ -141,8 +143,6 @@ async def login_for_access_token(
     logger.info(f"User '{user.username}' obtained access token.")
     return {"access_token": access_token, "token_type": "bearer"}
 
-
-
 @app.post("/send/")
 async def send_to_kafka(
         message: Dict, current_user: User = Depends(get_current_active_user)
@@ -155,54 +155,3 @@ async def send_to_kafka(
     except Exception as e:
         logger.error(f"Failed to send message to Kafka: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-from pydantic_models import UserOut, UsersResponse
-
-@app.get("/admin/users", response_model=UsersResponse)
-async def get_users(
-        limit: int,
-        current_user: User = Depends(admin_required),
-        db: Session = Depends(get_db)
-):
-    users = get_all_users(db, limit=limit)
-
-    users_out = [
-        UserOut(
-            id=user.id,
-            username=user.username,
-            full_name=user.full_name,
-            disabled=user.disabled,
-            roles=[role.name for role in user.roles]
-        )
-        for user in users
-    ]
-
-    return {"users": users_out}
-
-
-@app.post("/admin/upload_movie")
-async def upload_movie(
-        title: str,
-        description: str,
-        file: UploadFile = File(...),
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_active_user)
-):
-    minio_client: MinioClientWrapper = app.state.minio_client
-    s3_key = f"{current_user.id}/{file.filename}"
-
-    # Сохраняем файл локально временно
-    file_path = f"/tmp/{file.filename}"
-    with open(file_path, "wb") as f:
-        f.write(await file.read())
-
-    try:
-        minio_client.upload_movie(s3_key, file_path)
-
-        # Добавляем мета-информацию о фильме в БД
-        movie = create_movie(db, title=title, description=description, s3_key=s3_key)
-
-        return {"status": "success", "movie_id": movie.id}
-    finally:
-        os.remove(file_path)

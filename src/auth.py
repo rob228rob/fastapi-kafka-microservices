@@ -1,4 +1,4 @@
-# app/auth.py
+# src/auth.py
 from datetime import datetime, timedelta
 from typing import Optional, List
 

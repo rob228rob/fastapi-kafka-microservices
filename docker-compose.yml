@@ -25,9 +25,7 @@ services:
       retries: 3
 
   producer:
-    build:
-      context: kafka_producer
-      dockerfile: Dockerfile
+    build: .
     ports:
       - "8000:8000"
     environment:

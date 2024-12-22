@@ -1,21 +1,21 @@
 # streaming.py
 
-import os
-from typing import Generator
-from datetime import datetime
-
-from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File, status
-from fastapi.responses import HTMLResponse, StreamingResponse
-from sqlalchemy.orm import Session
-
-from app.auth import get_current_active_user, User
-from app.producer import send_message
-from app.repositories.movie_repository import get_movie_by_title, create_movie
-from app.repositories.user_repository import get_all_users, get_db
-from pydantic_models import UserOut, UsersResponse
-from app.minio.minio_service import MinioClientWrapper
-
 import logging
+from datetime import datetime
+from typing import Generator
+
+from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.responses import HTMLResponse, StreamingResponse
+from minio import S3Error
+from sqlalchemy.orm import Session
+from sqlalchemy.sql.functions import current_user
+
+from ..auth import get_current_active_user, User
+from ..dependencies import get_minio_client
+from ..minio.minio_service import MinioClientWrapper
+from ..producer import send_message, send_user_stat_to_kafka
+from ..repositories.movie_repository import get_movie_by_title, get_movie_by_id
+from ..repositories.user_repository import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -40,44 +40,48 @@ def get_minio_client_dependency(request: Request) -> MinioClientWrapper:
     return request.app.state.minio_client
 
 
-@router.get("/get/{video_title}", response_class=StreamingResponse, responses={
+@router.get("/get/{movie_id}", response_class=StreamingResponse, responses={
     200: {"content": {"video/mp4": {}}},
     404: {"description": "Video not found"},
 })
-async def get_video(
-        video_title: str,
+async def download_movie(
+        movie_id: int,
         request: Request,
         db: Session = Depends(get_db),
-        minio_client: MinioClientWrapper = Depends(get_minio_client_dependency),
-        current_user: User = Depends(get_current_active_user),
-) -> StreamingResponse:
-    # Получение метаданных фильма из базы данных
-    movie = get_movie_by_title(db, title=video_title)
+        requested_user: User = Depends(get_current_active_user),
+        minio_client: MinioClientWrapper = Depends(get_minio_client)
+):
+    movie = get_movie_by_id(db, movie_id)
     if not movie:
-        raise HTTPException(status_code=404, detail="Video not found")
-
-    # Получение объекта из MinIO
-    try:
-        response = minio_client.client.get_object(movie.s3_key)
-    except Exception as e:
-        logger.error(f"Failed to retrieve video from MinIO: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve video")
-
-    user_ip = request.client.host
-    message = {
-        "event": "video_streamed",
-        "video_title": video_title,
-        "user": current_user.username,
-        "user_ip": user_ip,
-        "timestamp": datetime.utcnow().isoformat()
-    }
+        raise HTTPException(status_code=404, detail="Фильм не найден")
 
     try:
-        send_message(message)
-    except Exception as e:
-        logger.error(f"Failed to send Kafka message: {e}")
+        # Получаем поток данных из MinIO
+        file_stream = minio_client.download_movie(movie.s3_key)
 
-    return StreamingResponse(file_chunk_generator(response), media_type="video/mp4")
+        # Настраиваем заголовки для скачивания файла
+        headers = {
+            "Content-Disposition": f'attachment; filename="{movie.title}.mp4"'
+        }
+
+        user_ip = request.client.host
+        message = {
+            "event": "video_streamed",
+            "video_title": movie.title,
+            "user": requested_user.username,
+            "user_ip": user_ip,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+        try:
+            send_user_stat_to_kafka(message)
+        except Exception as e:
+            logger.error(f"Failed to send Kafka message: {e}")
+
+        return StreamingResponse(file_stream, media_type="video/mp4", headers=headers)
+    except S3Error as e:
+        logger.error(f"Не удалось получить фильм из MinIO: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось получить фильм из хранилища")
 
 
 @router.get("/play/plyr/{video_title}", response_class=HTMLResponse)

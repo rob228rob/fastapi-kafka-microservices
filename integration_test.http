@@ -53,10 +53,24 @@ Content-Type: application/json
     "movie_id": 1
 }
 
-### 7. Получение списка пользователей как администратор
-GET http://localhost:8000/admin/users?limit=10
-Authorization: Bearer {{admin_token}}
+### 7.
+POST http://localhost:8000/admin/upload_movie
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlkIjoyLCJyb2xlcyI6WyJhZG1pbiJdLCJleHAiOjE3MzQ4OTgzNzd9.t4Odywv6txABaZ2VQGI_mR8fj9M3OfX1cdRLX1C7LE8
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
 
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="title"
+
+My Movie
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="description"
+
+This is a description of the movie.
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="2024-12-04 18-17-45.mp4"
+Content-Type: video/mp4
+
+< C:\Users\Asus\PycharmProjects\fastapi-video-player\2024-12-04 18-17-45.mp4
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
 
 ###
-GET http://localhost:8000/health

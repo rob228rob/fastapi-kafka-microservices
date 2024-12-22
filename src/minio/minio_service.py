@@ -49,15 +49,16 @@ class MinioClientWrapper:
                 detail="Не удалось загрузить файл в хранилище."
             )
 
-    def download_movie(self, object_name: str, file_path: str):
+    def download_movie(self, object_name: str):
         """
-        Скачивает файл (фильм) из bucket MinIO
+        Скачивает файл (фильм) из bucket MinIO и возвращает поток
         :param object_name: имя объекта (файла) в хранилище
-        :param file_path: локальный путь, куда сохранить файл
+        :return: поток данных файла
         """
         try:
-            self.client.fget_object(self.bucket_name, object_name, file_path)
-            logger.info(f"Файл {object_name} успешно скачан в {file_path}.")
+            response = self.client.get_object(self.bucket_name, object_name)
+            logger.info(f"Файл {object_name} успешно получен из {self.bucket_name}.")
+            return response  # Возвращаем поток
         except S3Error as err:
             logger.error(f"Ошибка при скачивании файла: {err}")
             raise HTTPException(

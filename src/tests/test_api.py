@@ -1,7 +1,7 @@
 # tests/test_api.py
 import pytest
 from unittest.mock import patch
-from services.kafka_producer.app.repositories.user_repository import create_user, assign_role_to_user, get_user_by_username
+from src.repositories.user_repository import create_user, assign_role_to_user, get_user_by_username
 from ..auth import get_password_hash
 
 @pytest.mark.usefixtures("test_db")
@@ -81,7 +81,7 @@ def test_send_kafka_message(client):
 
     test_message = {"key": "value"}
 
-    with patch("app.producer.send_message") as mock_send:
+    with patch("src.producer.send_message") as mock_send:
         mock_send.return_value = None
         response = client.post("/send/", json=test_message, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
