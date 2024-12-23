@@ -26,15 +26,6 @@ router = APIRouter(
 )
 
 
-# Генерация чанков для стриминга
-def file_chunk_generator(file_obj, chunk_size: int = 512 * 512) -> Generator[bytes, None, None]:
-    while True:
-        chunk = file_obj.read(chunk_size)
-        if not chunk:
-            break
-        yield chunk
-
-
 def get_minio_client_dependency(request: Request) -> MinioClientWrapper:
     return request.app.state.minio_client
 
@@ -82,47 +73,3 @@ async def download_movie(
     except S3Error as e:
         logger.error(f"Не удалось получить фильм из MinIO: {e}")
         raise HTTPException(status_code=500, detail="Не удалось получить фильм из хранилища")
-
-
-@router.get("/play/plyr/{video_title}", response_class=HTMLResponse)
-async def play_video_plyr(
-        video_title: str,
-        request: Request,
-        db: Session = Depends(get_db),
-        minio_client: MinioClientWrapper = Depends(get_minio_client_dependency),
-        current_user: User = Depends(get_current_active_user)
-) -> HTMLResponse:
-    """
-    функция временно(или всегда) не используется т.к. она тянет готовые шаблоны и юзает файловую систему в обход минио
-    :param video_title:
-    :param request:
-    :param db:
-    :param minio_client:
-    :param current_user:
-    :return:
-    """
-    # Проверка существования фильма в базе данных
-    movie = get_movie_by_title(db, title=video_title)
-    if not movie:
-        raise HTTPException(status_code=404, detail="Video not found")
-
-    return HTMLResponse(
-        content=f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <link href="https://cdn.plyr.io/3.6.8/plyr.css" rel="stylesheet" />
-        </head>
-        <body>
-            <video id="player" playsinline controls>
-                <source src="/streaming/get/{video_title}" type="video/mp4" />
-            </video>
-            <script src="https://cdn.plyr.io/3.6.8/plyr.polyfilled.js"></script>
-            <script>
-                const player = new Plyr('#player');
-            </script>
-        </body>
-        </html>
-        """,
-        status_code=200
-    )

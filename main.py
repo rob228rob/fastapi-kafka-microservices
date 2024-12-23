@@ -102,7 +102,7 @@ async def startup_event():
 
 @app.get("/liveness")
 async def health():
-    return {"status": "ok", "problems": "0"}
+    return {"status": "ok", "problems": []}
 
 @app.post("/register", response_model=Token)
 async def register_user(user: UserRegister, db: Session = Depends(get_db)):
