@@ -8,19 +8,18 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
 from minio import S3Error
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.functions import current_user
 
 from ..auth import get_current_active_user, User
 from ..dependencies import get_minio_client
 from ..minio.minio_service import MinioClientWrapper
-from ..producer import send_message, send_user_stat_to_kafka
+from ..producer import send_user_stat_to_kafka
 from ..repositories.movie_repository import get_movie_by_title, get_movie_by_id
 from ..repositories.user_repository import get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/streaming",  # Все маршруты будут начинаться с /streaming
+    prefix="/streaming",
     tags=["Streaming"],  # Теги для группировки в документации
     dependencies=[Depends(get_current_active_user)],  # Все маршруты требуют аутентифицированного пользователя
     responses={404: {"description": "Not found"}},
@@ -67,8 +66,9 @@ async def download_movie(
         user_ip = request.client.host
         message = {
             "event": "video_streamed",
-            "video_title": movie.title,
-            "user": requested_user.username,
+            "movie_title": movie.title,
+            "movie_id": movie_id,
+            "user_id": requested_user.id,
             "user_ip": user_ip,
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -92,6 +92,15 @@ async def play_video_plyr(
         minio_client: MinioClientWrapper = Depends(get_minio_client_dependency),
         current_user: User = Depends(get_current_active_user)
 ) -> HTMLResponse:
+    """
+    функция временно(или всегда) не используется т.к. она тянет готовые шаблоны и юзает файловую систему в обход минио
+    :param video_title:
+    :param request:
+    :param db:
+    :param minio_client:
+    :param current_user:
+    :return:
+    """
     # Проверка существования фильма в базе данных
     movie = get_movie_by_title(db, title=video_title)
     if not movie:

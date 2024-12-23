@@ -5,6 +5,7 @@ import os
 from datetime import timedelta
 from typing import Dict
 
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from passlib.handlers.bcrypt import bcrypt
@@ -29,7 +30,7 @@ from src.repositories.user_repository import (
     get_db,
     create_user,
     assign_roles_to_user,
-    get_user_by_username,
+    get_user_by_username, assign_role_to_user,
 )
 from src.streaming.streaming import router as streaming_router
 from admin_router import admin_route
@@ -51,6 +52,14 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["*"],
 )
 
 # Подключение роутеров
@@ -104,8 +113,11 @@ async def register_user(user: UserRegister, db: Session = Depends(get_db)):
             raise HTTPException(status_code=409, detail="Username already exists")
 
         hashed_password = bcrypt.hash(user.password)
-        new_user = create_user(db, username=user.username, password_hash=hashed_password, full_name=user.full_name)
-        assign_roles_to_user(db, new_user.id, user.roles.split(","))  # если `roles` — строка с запятыми
+        new_user = create_user(db,
+                               username=user.username,
+                               password_hash=hashed_password,
+                               full_name=user.full_name)
+        assign_role_to_user(db, new_user.id, "user")
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
             data={"sub": new_user.username, "id": new_user.id, "roles": [role.name for role in new_user.roles]},
@@ -113,11 +125,13 @@ async def register_user(user: UserRegister, db: Session = Depends(get_db)):
         )
         logger.info(f"User '{user.username}' registered successfully.")
         return {"access_token": access_token, "token_type": "bearer"}
-    except IntegrityError as e:
-        logger.error(f"Database integrity error: {e}")
-        raise HTTPException(status_code=409, detail="Username already exists")
-    except Exception as e:
-        logger.error(f"Failed to register user '{user.username}': {e}")
+    except IntegrityError as ex:
+        logger.error(f"Integrity error occurred: {ex}")
+        raise HTTPException(status_code=409, detail="Database integrity error")
+    except HTTPException as http_err:
+        raise http_err  # Пропустить заранее сгенерированные HTTP исключения
+    except Exception as ex:
+        logger.error(f"Unexpected error during registration: {type(ex).__name__} - {str(ex)}")
         raise HTTPException(status_code=400, detail="Failed to register user")
 
 @app.post("/login", response_model=Token)
@@ -142,16 +156,3 @@ async def login_for_access_token(
     )
     logger.info(f"User '{user.username}' obtained access token.")
     return {"access_token": access_token, "token_type": "bearer"}
-
-@app.post("/send/")
-async def send_to_kafka(
-        message: Dict, current_user: User = Depends(get_current_active_user)
-):
-    logger.info(f"User '{current_user.username}' is attempting to send message to Kafka: {message}")
-    try:
-        send_user_stat_to_kafka(message)
-        logger.info(f"Message successfully sent to Kafka by user '{current_user.username}': {message}")
-        return {"status": "success", "message": "Message sent to Kafka"}
-    except Exception as e:
-        logger.error(f"Failed to send message to Kafka: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

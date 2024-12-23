@@ -54,7 +54,7 @@ from fastapi import Form
 
 @admin_route.post("/upload_movie", response_model=MovieResponse)
 async def upload_movie(
-        title: str = Form(...),  # Теперь явно указываем, что title передается через form-data
+        title: str = Form(...),  # title передается через form-data
         description: str = Form(...),  # description тоже передается через form-data
         file: UploadFile = File(...),  # Файл передается через form-data
         db: Session = Depends(get_db),
@@ -76,7 +76,6 @@ async def upload_movie(
     try:
         minio_client.upload_movie(s3_key, file_path)
 
-        # Добавляем мета-информацию о фильме в БД
         movie = create_movie(db, title=title, description=description, s3_key=s3_key)
 
         return MovieResponse(
@@ -124,7 +123,6 @@ async def download_movie(
     except S3Error as e:
         logger.error(f"Не удалось получить фильм из MinIO: {e}")
         raise HTTPException(status_code=500, detail="Не удалось получить фильм из хранилища")
-
 
 
 @admin_route.delete("/delete_movie/{movie_id}")
