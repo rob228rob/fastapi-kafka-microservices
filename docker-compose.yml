@@ -42,7 +42,7 @@ services:
         condition: service_started
 
   db:
-    image: postgres:15
+    image: postgres:16-alpine3.21
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mydatabase}
       POSTGRES_USER: ${POSTGRES_USER:-myuser}
