@@ -81,8 +81,11 @@ async def get_movies(
         for movie in movies
     ]
 
-@movie_router.get("/recs/{user_id}", response_model=list[dict])
-async def get_movie_recommendations(user_id: int):
+@movie_router.get("/recs", response_model=list[dict])
+async def get_movie_recommendations(
+        current_user: User = Depends(get_current_active_user)
+):
+    user_id = current_user.id
     try:
         # Выполняем запрос к внешнему сервису
         async with httpx.AsyncClient() as client:
